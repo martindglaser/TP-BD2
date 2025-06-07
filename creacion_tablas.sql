@@ -1,3 +1,9 @@
+CREATE DATABASE [TP-BD2];
+GO
+
+USE [TP-BD2];
+GO
+
 CREATE TABLE Tipo_Servicio (
 	id_tipo_servicio int PRIMARY KEY,
 	nombre_servicio VARCHAR(150)
@@ -101,4 +107,22 @@ CREATE TABLE SLA (
     id_tipo_ticket int FOREIGN KEY REFERENCES Tipo_Ticket(id_tipo_ticket),
     tiempo_maximo INT,
     PRIMARY KEY (id_estado, id_tipo_ticket),
+);
+
+
+CREATE TABLE Actividad (
+    id_actividad INT PRIMARY KEY IDENTITY(1,1),
+    id_ticket INT NOT NULL,
+    descripcion VARCHAR(200) NOT NULL,
+    fecha_hora DATETIME DEFAULT GETDATE(),
+    CONSTRAINT FK_Actividad_Ticket FOREIGN KEY (id_ticket) REFERENCES Ticket(id_ticket)
+);
+
+
+CREATE TABLE Email_Queue (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    destinatario VARCHAR(150),
+    asunto VARCHAR(150),
+    cuerpo TEXT,
+    fecha_creacion DATETIME DEFAULT GETDATE()
 );

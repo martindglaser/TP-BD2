@@ -1,3 +1,6 @@
+USE [TP-BD2];
+GO
+
 -- 1) Vista de Clientes (oculta tipo y número de documento)
 CREATE VIEW vw_Clientes_Seguro AS
 SELECT

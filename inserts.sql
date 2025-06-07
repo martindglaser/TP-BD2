@@ -71,3 +71,15 @@ INSERT INTO SLA (id_estado, id_tipo_ticket, tiempo_maximo) VALUES
 (4, 2, 24), -- 24 horas para servicio degradado
 (4, 3, 36), -- 36 horas para cambio de velocidad
 (4, 4, 72); -- 72 horas para mudanza
+
+
+-- Actividades asociadas al Ticket 1 (abierto)
+INSERT INTO Actividad (id_ticket, descripcion) VALUES
+(1, 'Chequeo de conexión del cliente'),
+(1, 'Reinicio remoto del router');
+
+-- Actividades asociadas al Ticket 2 (resuelto)
+INSERT INTO Actividad (id_ticket, descripcion) VALUES
+(2, 'Verificación de velocidad contratada'),
+(2, 'Cambio de perfil de velocidad en sistema'),
+(2, 'Confirmación con el cliente y cierre del caso');

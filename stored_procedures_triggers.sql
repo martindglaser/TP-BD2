@@ -1,3 +1,6 @@
+USE [TP-BD2]
+GO
+
 CREATE PROCEDURE sp_alta_prospecto
     @tipo_documento VARCHAR(50),
     @nro_documento VARCHAR(8),
@@ -138,8 +141,161 @@ BEGIN
         FROM Ticket T
         JOIN inserted I ON T.id_ticket = I.id_ticket
         WHERE I.id_estado = 4;
-		-- LOGICA DE ENVIO DE EMAIL --
+		
+
+		INSERT INTO Email_Queue(destinatario, asunto, cuerpo)
+		SELECT P.email,
+			   'Cambio de estado de Ticket',
+			   CONCAT('El ticket ', I.id_ticket, ' ha cambiado su estado a RESUELTO.')
+		FROM inserted I
+		JOIN Clientes_Tickets CT ON I.id_ticket = CT.id_ticket
+		JOIN Cliente C ON CT.id_cliente = C.id_cliente
+		JOIN Persona P ON P.tipo_documento = C.tipo_documento AND P.nro_documento = C.nro_documento;
 
     END
+END
+GO
+
+
+
+CREATE PROCEDURE sp_cambiar_estado_ticket
+    @id_ticket INT,
+    @nuevo_estado INT,
+    @id_usuario INT
+AS
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @estado_actual INT, @estado_cerrado INT = 5;
+
+        -- Obtener estado actual
+        SELECT @estado_actual = id_estado FROM Ticket WHERE id_ticket = @id_ticket;
+
+        -- Validar existencia
+        IF @estado_actual IS NULL
+            THROW 50000, 'El ticket no existe.', 1;
+
+        -- Validar que el ticket no esté cerrado
+        IF @estado_actual = @estado_cerrado
+            THROW 50010, 'No se puede modificar un ticket cerrado.', 1;
+
+        -- Validar que el usuario sea el dueño del ticket
+        IF NOT EXISTS (
+            SELECT 1 FROM Ticket WHERE id_ticket = @id_ticket AND id_empleado = @id_usuario
+        )
+            THROW 50012, 'Solo el dueño del ticket puede modificarlo.', 1;
+
+        -- Validar transición permitida (sin tabla)
+        IF (
+            (@estado_actual = 1 AND @nuevo_estado NOT IN (2)) OR
+            (@estado_actual = 2 AND @nuevo_estado NOT IN (3, 4)) OR
+            (@estado_actual = 3 AND @nuevo_estado NOT IN (2)) OR
+            (@estado_actual = 4 AND @nuevo_estado NOT IN (5))
+        )
+            THROW 50011, 'Transición de estado no permitida.', 1;
+
+        -- Realizar el cambio
+        UPDATE Ticket
+        SET id_estado = @nuevo_estado,
+            fecha_hora_resolucion = CASE WHEN @nuevo_estado = 4 THEN GETDATE() ELSE fecha_hora_resolucion END
+        WHERE id_ticket = @id_ticket;
+
+        -- Insertar email en Email_Queue
+        INSERT INTO Email_Queue (destinatario, asunto, cuerpo)
+        SELECT
+            P.email,
+            'Cambio de estado de Ticket',
+            CONCAT('El ticket ', T.id_ticket, ' ha cambiado su estado a ', ET.descripcion)
+        FROM Ticket T
+        JOIN Clientes_Tickets CT ON T.id_ticket = CT.id_ticket
+        JOIN Cliente C ON CT.id_cliente = C.id_cliente
+        JOIN Persona P ON C.tipo_documento = P.tipo_documento AND C.nro_documento = P.nro_documento
+        JOIN Estado_Ticket ET ON ET.id_estado = @nuevo_estado
+        WHERE T.id_ticket = @id_ticket;
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        ROLLBACK;
+        THROW;
+    END CATCH
+END
+GO
+
+
+
+
+CREATE PROCEDURE sp_reasignar_ticket
+    @id_ticket INT,
+    @nuevo_empleado INT,
+    @usuario_actual INT
+AS
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @estado INT, @dueño_actual INT;
+
+        SELECT @estado = id_estado, @dueño_actual = id_empleado
+        FROM Ticket WHERE id_ticket = @id_ticket;
+
+        IF @estado = 5
+            THROW 50020, 'No se puede reasignar un ticket cerrado.', 1;
+
+        IF @dueño_actual <> @usuario_actual
+            THROW 50021, 'Solo el dueño del ticket puede reasignarlo.', 1;
+
+        IF NOT EXISTS (SELECT 1 FROM Empleado WHERE id_empleado = @nuevo_empleado AND estado = 'Activo')
+            THROW 50022, 'El nuevo empleado no está activo.', 1;
+
+        UPDATE Ticket SET id_empleado = @nuevo_empleado
+        WHERE id_ticket = @id_ticket;
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        ROLLBACK;
+        THROW;
+    END CATCH
+END
+GO
+
+
+
+CREATE TRIGGER trg_validar_modificaciones_persona
+ON Persona
+INSTEAD OF UPDATE
+AS
+BEGIN
+    -- Solo permitir cambios si sigue siendo prospecto
+    IF EXISTS (
+        SELECT 1 FROM inserted I
+        JOIN deleted D ON I.tipo_documento = D.tipo_documento AND I.nro_documento = D.nro_documento
+        WHERE D.cliente_o_prospecto <> 'Prospecto' AND (
+              I.nombre <> D.nombre OR
+              I.apellido <> D.apellido OR
+              I.tipo_documento <> D.tipo_documento OR
+              I.nro_documento <> D.nro_documento OR
+              I.fecha_nacimiento <> D.fecha_nacimiento
+        )
+    )
+    BEGIN
+        THROW 50030, 'Solo se pueden modificar estos datos cuando la persona es Prospecto.', 1;
+    END
+
+    -- Si pasa la validación, aplicar el update real
+    UPDATE P
+    SET
+        nombre = I.nombre,
+        apellido = I.apellido,
+        tipo_documento = I.tipo_documento,
+        nro_documento = I.nro_documento,
+        fecha_nacimiento = I.fecha_nacimiento,
+        email = I.email,
+        estado = I.estado,
+        cliente_o_prospecto = I.cliente_o_prospecto
+    FROM Persona P
+    JOIN inserted I ON P.tipo_documento = I.tipo_documento AND P.nro_documento = I.nro_documento;
 END
 GO
