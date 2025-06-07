@@ -20,6 +20,10 @@ BEGIN
         IF @fecha_nacimiento IS NOT NULL AND DATEDIFF(YEAR, @fecha_nacimiento, GETDATE()) < 18
             THROW 50002, 'La persona debe ser mayor de 18 años.', 1;
 
+        -- Validar email si se ingresa
+        IF (@email IS NOT NULL AND @email NOT LIKE '_%@_%._%')
+            THROW 50033, 'El email ingresado no es válido.', 1;
+
         -- Insertar en Persona y Prospecto
         INSERT INTO Persona VALUES(@tipo_documento, @nro_documento, @fecha_nacimiento, @email, 'Prospecto', @nombre, @apellido, 'Prospecto');
         INSERT INTO Prospecto VALUES(@tipo_documento, @nro_documento, (SELECT ISNULL(MAX(id_prospecto), 0)+1 FROM Prospecto));
@@ -33,7 +37,8 @@ BEGIN
 END
 GO
 
--- Procedimiento: Alta de Servicio
+
+
 CREATE PROCEDURE sp_alta_servicio
     @id_cliente INT,
     @id_tipo_servicio INT,
@@ -47,6 +52,23 @@ BEGIN
     BEGIN TRY
         BEGIN TRANSACTION;
 
+        -- Validar que el prospecto tenga email y fecha nacimiento
+        DECLARE @email_cliente VARCHAR(100), @fecha_nacimiento_cliente DATE;
+
+        SELECT 
+            @email_cliente = P.email,
+            @fecha_nacimiento_cliente = P.fecha_nacimiento
+        FROM Cliente C
+        JOIN Persona P ON C.tipo_documento = P.tipo_documento AND C.nro_documento = P.nro_documento
+        WHERE C.id_cliente = @id_cliente;
+
+        IF (@email_cliente IS NULL OR LEN(@email_cliente) = 0)
+            THROW 50031, 'El cliente debe tener un email válido para activar un servicio.', 1;
+
+        IF (@fecha_nacimiento_cliente IS NULL)
+            THROW 50032, 'El cliente debe tener una fecha de nacimiento válida para activar un servicio.', 1;
+
+        -- Validación del tipo de servicio
         DECLARE @requiere_telefono BIT = CASE WHEN @id_tipo_servicio IN (1,3) THEN 1 ELSE 0 END;
         IF @requiere_telefono = 1 AND (@telefono IS NULL OR LEN(@telefono) = 0)
             THROW 50003, 'El servicio requiere teléfono.', 1;
@@ -54,11 +76,12 @@ BEGIN
         IF @id_tipo_servicio = 2 AND @telefono IS NOT NULL
             SET @telefono = NULL;
 
+        -- Alta de servicio
         DECLARE @id_servicio INT = (SELECT ISNULL(MAX(id_servicio), 0)+1 FROM Servicio);
         INSERT INTO Servicio VALUES(@id_servicio, @id_tipo_servicio, @telefono, @calle, @numero, @piso, @depto, GETDATE(), 'Activo');
         INSERT INTO Cientes_Servicios VALUES(@id_cliente, @id_servicio);
 
-        -- Actualizar estado de Persona a Activo si estaba Inactivo o Prospecto
+        -- Actualizar estado de Persona
         UPDATE Persona
         SET estado = 'Activo', cliente_o_prospecto = 'Cliente'
         WHERE (SELECT tipo_documento FROM Cliente WHERE id_cliente = @id_cliente) = tipo_documento
@@ -72,6 +95,11 @@ BEGIN
     END CATCH
 END
 GO
+
+
+
+
+
 
 -- Procedimiento: Crear nuevo Ticket
 CREATE PROCEDURE sp_crear_ticket
